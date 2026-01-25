@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import '../styles/home.css';
 import '../componets/navbar.js';
@@ -20,7 +20,7 @@ const Home = () => {
   const cartModalRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const productsCollectionRef = collection(db, 'products');
+  const productsCollectionRef = useMemo(() => collection(db, 'products'), []);
 
   // Cargar productos desde Firestore al montar el componente
   useEffect(() => {
@@ -50,7 +50,7 @@ const Home = () => {
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [productsCollectionRef]);
 
   // Cargar carrito desde localStorage
   useEffect(() => {
@@ -217,12 +217,12 @@ const Home = () => {
           <h2 className="text-2xl font-bold mb-6">Categorías Destacadas</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {categories.map((cat, idx) => (
-              <a key={idx} href="#" className="category-card bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition duration-300">
+              <div key={idx} className="category-card bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition duration-300 cursor-pointer">
                 <img src={cat.image} alt={cat.name} className="w-full h-40 object-cover" />
                 <div className="p-4">
                   <h3 className="font-medium">{cat.name}</h3>
                 </div>
-              </a>
+              </div>
             ))}
           </div>
         </section>

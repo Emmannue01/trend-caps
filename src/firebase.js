@@ -15,9 +15,7 @@ const firebaseConfig = {
   measurementId: "G-3V29MVD8NL"
 };
 
-REACT_APP_IMAGE_DATABASE_URL=
-REACT_APP_CLOUDINARY_PROYECT_NAME=dtf8s8epz
-REACT_APP_CLOUDINARY_UPLOAD_PRESET=SistemaGestion
+
 
 // Inicializar Firebase
 const app = initializeApp(firebaseConfig);

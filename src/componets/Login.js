@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Mail, Lock, ShoppingBag } from 'lucide-react';
-import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, getRedirectResult, signInWithRedirect } from "firebase/auth";
 import { auth,db } from '../firebase.js';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useNavigate, Link } from 'react-router-dom';
@@ -12,6 +12,52 @@ export default function Login() {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+
+  const processUser = useCallback(async (user) => {
+    if (!user) return;
+
+    const userDocRef = doc(db, "users", user.uid);
+    const userDocSnap = await getDoc(userDocRef);
+
+    if (userDocSnap.exists() && userDocSnap.data().isAdmin === true) {
+      navigate('/admin');
+    } else {
+      if (!userDocSnap.exists()) {
+        await setDoc(userDocRef, {
+          email: user.email,
+          displayName: user.displayName,
+          isAdmin: false,
+          createdAt: new Date().toISOString(),
+          phone: '',
+          street: '',
+          neighborhood: '',
+          city: '',
+          state: '',
+          zipCode: '',
+          country: '',
+        });
+      }
+      navigate('/');
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    const checkRedirectResult = async () => {
+      try {
+        setIsLoading(true);
+        const result = await getRedirectResult(auth);
+        if (result && result.user) {
+          await processUser(result.user);
+        }
+      } catch (error) {
+        console.error("Error al obtener resultado de redirección:", error);
+        setError("Ocurrió un error durante el inicio de sesión.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    checkRedirectResult();
+  }, [processUser]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -60,40 +106,26 @@ export default function Login() {
 
     try {
       const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
-      const userDocRef = doc(db, "users", user.uid);
-      const userDocSnap = await getDoc(userDocRef);
-
-      if (userDocSnap.exists()) {
-        // El usuario ya existe, verificar su rol
-        if (userDocSnap.data().isAdmin === true) {
-          navigate('/admin');
-        } else {
-          navigate('/');
+      await processUser(result.user);
+    } catch (error) {
+      console.error("Error con signInWithPopup:", error);
+      if (
+        error.code === 'auth/popup-blocked' ||
+        error.code === 'auth/popup-closed-by-user' ||
+        error.code === 'auth/cancelled-popup-request' ||
+        error.code === 'auth/operation-not-supported-in-this-environment'
+      ) {
+        try {
+          await signInWithRedirect(auth, provider);
+        } catch (redirectError) {
+          console.error("Error con signInWithRedirect:", redirectError);
+          setError("No se pudo iniciar el proceso de inicio de sesión. Inténtalo de nuevo.");
+          setIsLoading(false);
         }
       } else {
-        // Es un nuevo usuario de Google, crear su documento con rol de cliente
-        await setDoc(userDocRef, {
-          email: user.email,
-          displayName: user.displayName,
-          isAdmin: false, // Por defecto, los usuarios no son administradores
-          createdAt: new Date().toISOString(),
-          phone: '',
-          street: '',
-          neighborhood: '',
-          city: '',
-          state: '',
-          zipCode: '',
-          country: '',
-        });
-        navigate('/'); // Redirigir a la home normal para nuevos usuarios
+        setError("No se pudo iniciar sesión con Google.");
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error("Error en inicio de sesión con Google:", error);
-      setError("No se pudo iniciar sesión con Google.");
-    } finally {
-      setIsLoading(false);
     }
   };
 

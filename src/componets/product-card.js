@@ -138,6 +138,22 @@ class ProductCard extends HTMLElement {
             window.feather.replace({ class: 'feather', 'stroke-width': 2 });
         }
         
+        const productCardDiv = this.shadowRoot.querySelector('.product-card');
+        if (productCardDiv) {
+            productCardDiv.addEventListener('click', (e) => {
+                // No activar la vista rápida si se hizo clic en el botón de añadir al carrito
+                if (e.target.closest('.add-to-cart')) {
+                    return;
+                }
+                const event = new CustomEvent('quick-view', {
+                    bubbles: true,
+                    composed: true,
+                    detail: { productId, name, stock, image, price, category, description }
+                });
+                this.dispatchEvent(event);
+            });
+        }
+
         // Add event listener to the button
         const addToCartBtn = this.shadowRoot.querySelector('.add-to-cart');
         if (addToCartBtn) {

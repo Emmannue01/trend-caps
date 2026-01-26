@@ -7,7 +7,7 @@ import '../componets/footer.js';
 import '../componets/cart-modal.js';
 import { db, auth } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 const Home = () => {
@@ -15,6 +15,7 @@ const Home = () => {
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [sizeModalProduct, setSizeModalProduct] = useState(null);
+  const [quickViewProduct, setQuickViewProduct] = useState(null);
   const [user, setUser] = useState(null);
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -138,6 +139,16 @@ const Home = () => {
     window.addEventListener('select-size', handleSelectSize);
     return () => {
       window.removeEventListener('select-size', handleSelectSize);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleQuickView = (e) => {
+      setQuickViewProduct(e.detail);
+    };
+    window.addEventListener('quick-view', handleQuickView);
+    return () => {
+      window.removeEventListener('quick-view', handleQuickView);
     };
   }, []);
 
@@ -395,6 +406,63 @@ const Home = () => {
             >
               Cancelar
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Quick View Modal */}
+      {quickViewProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4" onClick={() => setQuickViewProduct(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-4xl flex flex-col md:flex-row gap-6 relative" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setQuickViewProduct(null)}
+              className="absolute -top-3 -right-3 text-white bg-gray-800 rounded-full p-1 hover:bg-black transition-colors"
+            >
+              <X size={24} />
+            </button>
+            <div className="md:w-1/2 p-4">
+              <img src={quickViewProduct.image} alt={quickViewProduct.name} className="w-full h-auto max-h-[80vh] object-contain rounded-lg" />
+            </div>
+            <div className="md:w-1/2 p-6 flex flex-col">
+              <h2 className="text-3xl font-bold mb-2 text-gray-800">{quickViewProduct.name}</h2>
+              <p className="text-2xl font-semibold text-blue-600 mb-4">${quickViewProduct.price}</p>
+              <p className="text-gray-600 mb-6 flex-grow">{quickViewProduct.description || 'Sin descripción disponible.'}</p>
+              
+              <div className="mt-auto">
+                {typeof quickViewProduct.stock === 'object' ? (
+                  <>
+                    <p className="text-sm font-medium mb-3">Selecciona una talla:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(quickViewProduct.stock)
+                        .filter(([, count]) => count > 0)
+                        .map(([size]) => (
+                          <button
+                            key={size}
+                            onClick={() => {
+                              addToCart(quickViewProduct.productId, size);
+                              setQuickViewProduct(null);
+                            }}
+                            className="w-12 h-12 border rounded-md hover:bg-blue-600 hover:text-white focus:bg-blue-600 focus:text-white focus:outline-none transition-colors font-semibold"
+                          >
+                            {size}
+                          </button>
+                        ))
+                      }
+                    </div>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => {
+                      addToCart(quickViewProduct.productId, null);
+                      setQuickViewProduct(null);
+                    }}
+                    className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors"
+                  >
+                    Añadir al Carrito
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

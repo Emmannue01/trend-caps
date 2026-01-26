@@ -5,7 +5,6 @@ import { Plus, Edit, Trash2, Search, X, UploadCloud } from 'lucide-react';
 
 
 const CLOUDINARY_UPLOAD_PRESET = 'SistemaGestion'; 
-const CLOUDINARY_CLOUD_NAME = 'dtf8s8epz'; 
 const CLOUDINARY_API_URL = `https://api.cloudinary.com/v1_1/dtf8s8epz/image/upload`;
 // ------------------------------------
 

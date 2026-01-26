@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import { collection, onSnapshot, updateDoc, doc, orderBy, query } from 'firebase/firestore';
-import { Clock, CheckCircle, Truck, Package } from 'lucide-react';
+import { Clock, CheckCircle, Truck } from 'lucide-react';
 
 const OrderManager = () => {
   const [orders, setOrders] = useState([]);

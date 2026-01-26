@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Mail, Lock, ShoppingBag } from 'lucide-react';
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { auth } from '../firebase.js';
+import { auth,db } from '../firebase.js';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useNavigate, Link } from 'react-router-dom';
 
 export default function Login() {
@@ -18,8 +19,18 @@ export default function Login() {
     setError(null);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate('/');
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // Verificar el rol del usuario
+      const userDocRef = doc(db, "users", user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists() && userDocSnap.data().isAdmin === true) {
+        navigate('/admin'); // Redirigir al panel de admin
+      } else {
+        navigate('/'); // Redirigir a la home normal
+      }
     } catch (err) {
       console.error("Error de Firebase:", err);
       switch (err.code) {
@@ -48,8 +59,36 @@ export default function Login() {
     const provider = new GoogleAuthProvider();
 
     try {
-      await signInWithPopup(auth, provider);
-      navigate('/');
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      const userDocRef = doc(db, "users", user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        // El usuario ya existe, verificar su rol
+        if (userDocSnap.data().isAdmin === true) {
+          navigate('/admin');
+        } else {
+          navigate('/');
+        }
+      } else {
+        // Es un nuevo usuario de Google, crear su documento con rol de cliente
+        await setDoc(userDocRef, {
+          email: user.email,
+          displayName: user.displayName,
+          isAdmin: false, // Por defecto, los usuarios no son administradores
+          createdAt: new Date().toISOString(),
+          phone: '',
+          street: '',
+          neighborhood: '',
+          city: '',
+          state: '',
+          zipCode: '',
+          country: '',
+        });
+        navigate('/'); // Redirigir a la home normal para nuevos usuarios
+      }
     } catch (error) {
       console.error("Error en inicio de sesión con Google:", error);
       setError("No se pudo iniciar sesión con Google.");

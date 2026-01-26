@@ -133,6 +133,13 @@ class CartModal extends HTMLElement {
                     margin: 0 0 0.25rem 0;
                 }
 
+                .item-size {
+                    font-size: 0.8rem;
+                    color: #6b7280;
+                    font-weight: normal;
+                    margin-left: 0.5rem;
+                }
+
                 .item-price {
                     color: #4b5563;
                     font-size: 0.875rem;
@@ -259,7 +266,7 @@ class CartModal extends HTMLElement {
                             <div class="cart-item">
                                 <img src="${item.image}" alt="${item.name}" class="item-image">
                                 <div class="item-details">
-                                    <h3 class="item-name">${item.name}</h3>
+                                    <h3 class="item-name">${item.name}${item.size ? `<span class="item-size">(Talla: ${item.size})</span>` : ''}</h3>
                                     <div class="item-price">$${item.price}</div>
                                     <div class="item-controls">
                                         <div class="quantity-controls">

@@ -5,9 +5,22 @@ class ProductCard extends HTMLElement {
         const category = this.getAttribute('category');
         const description = this.getAttribute('description');
         const price = this.getAttribute('price');
-        const stock = parseInt(this.getAttribute('stock'));
         const image = this.getAttribute('image');
         
+        const stockString = this.getAttribute('stock');
+        let stock;
+        try {
+            stock = JSON.parse(stockString);
+        } catch (e) {
+            stock = parseInt(stockString, 10) || 0;
+        }
+
+        const isSizable = typeof stock === 'object' && stock !== null;
+
+        const totalStock = isSizable
+            ? Object.values(stock).reduce((sum, count) => sum + (Number(count) || 0), 0)
+            : stock;
+
         this.attachShadow({ mode: 'open' });
         this.shadowRoot.innerHTML = `
             <style>
@@ -77,7 +90,7 @@ class ProductCard extends HTMLElement {
                 
                 .product-stock {
                     font-size: 0.75rem;
-                    color: ${stock > 10 ? '#16a34a' : stock > 0 ? '#d97706' : '#dc2626'};
+                    color: ${totalStock > 10 ? '#16a34a' : totalStock > 0 ? '#d97706' : '#dc2626'};
                 }
                 
                 .add-to-cart {
@@ -110,9 +123,9 @@ class ProductCard extends HTMLElement {
                     <div class="product-footer">
                         <div>
                             <span class="product-price">$${price}</span>
-                            <div class="product-stock">${stock > 10 ? 'En stock' : stock > 0 ? 'Últimas unidades' : 'Agotado'}</div>
+                            <div class="product-stock">${totalStock > 10 ? 'En stock' : totalStock > 0 ? 'Últimas unidades' : 'Agotado'}</div>
                         </div>
-                        <button class="add-to-cart" ${stock <= 0 ? 'disabled' : ''}>
+                        <button class="add-to-cart" ${totalStock <= 0 ? 'disabled' : ''}>
                             <i data-feather="shopping-cart" width="16" height="16"></i>
                         </button>
                     </div>
@@ -129,7 +142,16 @@ class ProductCard extends HTMLElement {
         const addToCartBtn = this.shadowRoot.querySelector('.add-to-cart');
         if (addToCartBtn) {
             addToCartBtn.addEventListener('click', () => {
-                this.addToCart(productId);
+                if (isSizable) {
+                    const event = new CustomEvent('select-size', {
+                        bubbles: true,
+                        composed: true,
+                        detail: { productId, name, stock, image, price, category, description }
+                    });
+                    this.dispatchEvent(event);
+                } else {
+                    this.addToCart(productId);
+                }
             });
         }
     }
@@ -138,8 +160,7 @@ class ProductCard extends HTMLElement {
         const categories = {
             'gorras': 'Gorras',
             'camisetas': 'Camisetas',
-            'sudaderas': 'Sudaderas',
-            'accesorios': 'Accesorios'
+      
         };
         return categories[category] || category;
     }

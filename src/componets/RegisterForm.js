@@ -33,6 +33,7 @@ export default function RegisterForm() {
       // Crear documento de usuario en Firestore con estructura inicial
       await setDoc(doc(db, "users", user.uid), {
         email: user.email,
+        isAdmin: false, // Por defecto, los usuarios no son administradores
         displayName: '',
         phone: '',
         street: '',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import '../styles/home.css';
 import '../componets/navbar.js';
@@ -6,64 +6,121 @@ import '../componets/product-card.js';
 import '../componets/footer.js';
 import '../componets/cart-modal.js';
 import { db, auth } from '../firebase';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 
 const Home = () => {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [sizeModalProduct, setSizeModalProduct] = useState(null);
+  const [user, setUser] = useState(null);
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [formData, setFormData] = useState({ name: '', category: '', description: '', price: '', stock: '', image: '' });
-  const [editingId, setEditingId] = useState(null);
   const cartModalRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   const productsCollectionRef = useMemo(() => collection(db, 'products'), []);
 
-  // Cargar productos desde Firestore al montar el componente
+  // 1. Escuchar el estado de autenticación del usuario
   useEffect(() => {
-    const getProducts = async () => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Cargar productos y derivar categorías desde Firestore
+  useEffect(() => {
+    const getProductsAndDeriveCategories = async () => {
+      setLoadingCategories(true);
       try {
-        const data = await getDocs(productsCollectionRef);
-        setProducts(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+        const productsSnapshot = await getDocs(productsCollectionRef);
+        const productsData = productsSnapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+        setProducts(productsData);
+
+        // Derivar categorías desde los productos
+        const derivedCategories = productsData.reduce((acc, product) => {
+          if (product.category && !acc.some(cat => cat.slug === product.category)) {
+            acc.push({
+              id: product.category, // Usar el slug de la categoría como ID
+              name: product.category.charAt(0).toUpperCase() + product.category.slice(1), // Capitalizar
+              slug: product.category,
+            });
+          }
+          return acc;
+        }, []);
+        
+        setCategories(derivedCategories);
+
       } catch (error) {
-        console.error("Error al cargar productos:", error);
+        console.error("Error al cargar datos:", error);
+      } finally {
+        setLoadingCategories(false);
       }
     };
 
-    getProducts();
-
-    // Verificar estado de autenticación y permisos de admin
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const docRef = doc(db, "autenticados", user.email);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setIsAdmin(true);
-        } else {
-          setIsAdmin(false);
-        }
-      } else {
-        setIsAdmin(false);
-      }
-    });
-    return () => unsubscribe();
+    getProductsAndDeriveCategories();
   }, [productsCollectionRef]);
 
-  // Cargar carrito desde localStorage
+  // 2. Cargar el carrito y fusionar si es necesario
   useEffect(() => {
-    const savedCart = localStorage.getItem('cart');
-    if (savedCart) {
-      setCart(JSON.parse(savedCart));
-    }
-  }, []);
+    const loadAndMergeCart = async () => {
+      if (user) {
+        // Usuario logueado
+        const cartCollectionRef = collection(db, 'users', user.uid, 'cart');
+        const firestoreSnapshot = await getDocs(cartCollectionRef);
+        const firestoreCart = firestoreSnapshot.docs.map(doc => doc.data());
+        
+        const localCart = JSON.parse(localStorage.getItem('cart') || '[]');
 
-  // Guardar carrito en localStorage
-  useEffect(() => {
-    localStorage.setItem('cart', JSON.stringify(cart));
-  }, [cart]);
+        if (localCart.length > 0) {
+            // Hay un carrito local, fusionar con el de Firestore
+            const mergedCart = [...firestoreCart];
+            const batch = writeBatch(db);
+
+            localCart.forEach(localItem => {
+                const existingItemIndex = mergedCart.findIndex(item => item.id === localItem.id);
+                if (existingItemIndex > -1) {
+                    // El item ya existe, sumar cantidades
+                    mergedCart[existingItemIndex].quantity += localItem.quantity;
+                } else {
+                    // Item nuevo, añadirlo
+                    mergedCart.push(localItem);
+                }
+            });
+
+            // Actualizar Firestore con el carrito fusionado
+            mergedCart.forEach(item => {
+                const itemRef = doc(db, 'users', user.uid, 'cart', item.id);
+                batch.set(itemRef, item);
+            });
+            
+            await batch.commit();
+            setCart(mergedCart);
+            localStorage.removeItem('cart'); // Limpiar carrito local
+        } else {
+            // No hay carrito local, solo cargar el de Firestore
+            setCart(firestoreCart);
+        }
+      } else {
+        // Usuario no logueado: Cargar desde localStorage
+        const savedCart = localStorage.getItem('cart');
+        if (savedCart) {
+          try {
+            setCart(JSON.parse(savedCart));
+          } catch (e) {
+            console.error("Error al parsear el carrito de localStorage", e);
+            setCart([]);
+          }
+        } else {
+          setCart([]);
+        }
+      }
+    };
+    loadAndMergeCart();
+  }, [user]);
 
   // Sincronizar estado del carrito con la ruta
   useEffect(() => {
@@ -74,26 +131,62 @@ const Home = () => {
     }
   }, [location]);
 
+  useEffect(() => {
+    const handleSelectSize = (e) => {
+      setSizeModalProduct(e.detail);
+    };
+    window.addEventListener('select-size', handleSelectSize);
+    return () => {
+      window.removeEventListener('select-size', handleSelectSize);
+    };
+  }, []);
+
+  // 3. Funciones de modificación del carrito (ahora asíncronas)
+  const addToCart = useCallback(async (productId, size = null) => {
+    const productToAdd = products.find(p => p.id === productId);
+    if (!productToAdd) return;
+
+    const cartId = size ? `${productId}-${size}` : productId;
+
+    const existingItem = cart.find(item => item.id === cartId);
+    const newQuantity = existingItem ? existingItem.quantity + 1 : 1;
+
+    const cartItem = {
+        ...productToAdd,
+        id: cartId,
+        productId: productId,
+        quantity: newQuantity,
+        ...(size && { size: size })
+    };
+
+    if (user) {
+      // Guardar en Firestore
+      const itemRef = doc(db, 'users', user.uid, 'cart', cartId);
+      await setDoc(itemRef, cartItem, { merge: true });
+    }
+
+    // Actualizar estado local
+    if (existingItem) {
+      setCart(prevCart => prevCart.map(item =>
+        item.id === cartId ? { ...item, quantity: newQuantity } : item
+      ));
+    } else {
+      const newItemForState = {
+          ...productToAdd,
+          id: cartId,
+          productId: productId,
+          quantity: 1,
+          ...(size && { size: size })
+      };
+      setCart(prevCart => [...prevCart, newItemForState]);
+    }
+    setIsCartOpen(true);
+  }, [products, cart, user]);
+
   // Manejar eventos del carrito (Agregar y Abrir)
   useEffect(() => {
     const handleAddToCart = (e) => {
-      const { productId } = e.detail;
-      const productToAdd = products.find(p => p.id === productId);
-      
-      if (productToAdd) {
-        setCart(prevCart => {
-          const existingItem = prevCart.find(item => item.id === productId);
-          if (existingItem) {
-            return prevCart.map(item => 
-              item.id === productId 
-                ? { ...item, quantity: item.quantity + 1 } 
-                : item
-            );
-          }
-          return [...prevCart, { ...productToAdd, quantity: 1 }];
-        });
-        setIsCartOpen(true);
-      }
+      addToCart(e.detail.productId, null);
     };
 
     const handleOpenCart = () => navigate('/carrito');
@@ -105,7 +198,31 @@ const Home = () => {
       window.removeEventListener('add-to-cart', handleAddToCart);
       window.removeEventListener('open-cart', handleOpenCart);
     };
-  }, [products, navigate]);
+  }, [addToCart, navigate]);
+
+  const handleUpdateQuantity = useCallback(async (id, change) => {
+    const itemInCart = cart.find(item => item.id === id);
+    if (!itemInCart) return;
+
+    const newQty = Math.max(1, itemInCart.quantity + change);
+
+    if (user) {
+      const itemRef = doc(db, 'users', user.uid, 'cart', id);
+      await updateDoc(itemRef, { quantity: newQty });
+    }
+
+    setCart(prevCart => prevCart.map(item => {
+      return item.id === id ? { ...item, quantity: newQty } : item;
+    }));
+  }, [cart, user]);
+
+  const handleRemoveItem = useCallback(async (id) => {
+    if (user) {
+      const itemRef = doc(db, 'users', user.uid, 'cart', id);
+      await deleteDoc(itemRef);
+    }
+    setCart(prevCart => prevCart.filter(item => item.id !== id));
+  }, [user]);
 
   // Pasar items al modal del carrito y manejar sus eventos
   useEffect(() => {
@@ -132,72 +249,67 @@ const Home = () => {
         modal.removeEventListener('remove-item', handleRemove);
       };
     }
-  }, [cart, isCartOpen, location, navigate]);
-
-  const handleUpdateQuantity = (id, change) => {
-    setCart(prevCart => prevCart.map(item => {
-      if (item.id === id) {
-        const newQty = Math.max(1, item.quantity + change);
-        return { ...item, quantity: newQty };
-      }
-      return item;
-    }));
-  };
-
-  const handleRemoveItem = (id) => {
-    setCart(prevCart => prevCart.filter(item => item.id !== id));
-  };
-
-  // Inicializar Feather Icons
+  }, [cart, isCartOpen, location, navigate, user, handleUpdateQuantity, handleRemoveItem]);
+  // 4. Guardar carrito en localStorage SOLO si el usuario no está logueado
   useEffect(() => {
-    if (window.feather) {
-      window.feather.replace();
+    if (!user) {
+      localStorage.setItem('cart', JSON.stringify(cart));
     }
-  }, [showModal, products]);
+  }, [cart, user]);
 
-
-  const handleInputChange = (e) => {
-    const { id, value } = e.target;
-    setFormData(prev => ({ ...prev, [id.replace('product-', '')]: value }));
+  const handleAddToCartWithSize = (product, size) => {
+    addToCart(product.productId, size);
+    setSizeModalProduct(null); // Close modal
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const productData = {
-      ...formData,
-      price: Number(formData.price),
-      stock: Number(formData.stock)
+  // Componente para la tarjeta de categoría con carrusel
+  const CategoryCarouselCard = ({ category, allProducts }) => {
+    const [currentIndex, setCurrentIndex] = useState(0);
+
+    const productImages = useMemo(() => 
+        allProducts
+            .filter(p => p.category === category.slug && p.image)
+            .map(p => p.image),
+        [allProducts, category.slug]
+    );
+
+    const displayImages = productImages.length > 0 
+        ? productImages 
+        : ['https://via.placeholder.com/640x360.png?text=Sin+Productos'];
+
+    useEffect(() => {
+      if (displayImages.length <= 1) return;
+
+      const interval = setInterval(() => {
+        setCurrentIndex(prevIndex => (prevIndex + 1) % displayImages.length);
+      }, 3000); // Cambia cada 3 segundos
+
+      return () => clearInterval(interval); // Limpia el intervalo al desmontar
+    }, [displayImages.length]);
+
+    const nextImage = (e) => {
+        e.stopPropagation();
+        setCurrentIndex(prev => (prev + 1) % displayImages.length);
     };
 
-    if (editingId) {
-      // Actualizar producto existente
-      const productDoc = doc(db, 'products', editingId);
-      await updateDoc(productDoc, productData);
-      setProducts(products.map(p => p.id === editingId ? { ...p, ...productData } : p));
-    } else {
-      // Crear nuevo producto
-      const docRef = await addDoc(productsCollectionRef, productData);
-      setProducts([...products, { id: docRef.id, ...productData }]);
-    }
-    setFormData({ name: '', category: '', description: '', price: '', stock: '', image: '' });
-    setEditingId(null);
-    setShowModal(false);
-  };
+    const prevImage = (e) => {
+        e.stopPropagation();
+        setCurrentIndex(prev => (prev - 1 + displayImages.length) % displayImages.length);
+    };
 
-  const handleDelete = async () => {
-    const productDoc = doc(db, 'products', editingId);
-    await deleteDoc(productDoc);
-    setProducts(products.filter(p => p.id !== editingId));
-    setFormData({ name: '', category: '', description: '', price: '', stock: '', image: '' });
-    setEditingId(null);
-    setShowModal(false);
+    return (
+        <div className="category-card bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition duration-300 cursor-pointer relative group">
+            <img src={displayImages[currentIndex]} alt={category.name} className="w-full h-40 object-cover transition-transform duration-300 group-hover:scale-105" />
+            {displayImages.length > 1 && (
+                <>
+                    <button onClick={prevImage} className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/30 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 focus:opacity-100"><ChevronLeft size={20} /></button>
+                    <button onClick={nextImage} className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/30 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 focus:opacity-100"><ChevronRight size={20} /></button>
+                </>
+            )}
+            <div className="p-4"><h3 className="font-medium">{category.name}</h3></div>
+        </div>
+    );
   };
-
-  const categories = [
-    { name: 'Gorras', image: 'http://static.photos/fashion/640x360/1' },
-    { name: 'Camisetas', image: 'http://static.photos/fashion/640x360/2' }
-    
-  ];
 
   return (
     <div className="bg-gray-50">
@@ -216,14 +328,15 @@ const Home = () => {
         <section className="mb-12">
           <h2 className="text-2xl font-bold mb-6">Categorías Destacadas</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {categories.map((cat, idx) => (
-              <div key={idx} className="category-card bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition duration-300 cursor-pointer">
-                <img src={cat.image} alt={cat.name} className="w-full h-40 object-cover" />
-                <div className="p-4">
-                  <h3 className="font-medium">{cat.name}</h3>
-                </div>
-              </div>
-            ))}
+            {loadingCategories ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="bg-gray-200 rounded-lg h-48 animate-pulse"></div>
+              ))
+            ) : categories.length > 0 ? (
+              categories.map((category) => (
+                <CategoryCarouselCard key={category.id} category={category} allProducts={products} />
+              ))
+            ) : <p className="col-span-full text-center text-gray-500">No hay categorías para mostrar.</p>}
           </div>
         </section>
 
@@ -231,9 +344,6 @@ const Home = () => {
         <section id="products" className="mb-12">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold">Nuestros Productos</h2>
-            {isAdmin && (
-              <button onClick={() => { setShowModal(true); setEditingId(null); setFormData({ name: '', category: '', description: '', price: '', stock: '', image: '' }); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-300">Administrar Inventario</button>
-            )}
           </div>
           
           <div id="products-grid" className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -245,9 +355,8 @@ const Home = () => {
                 category={product.category}
                 description={product.description}
                 price={product.price}
-                stock={product.stock}
+                stock={JSON.stringify(product.stock)}
                 image={product.image}
-                onClick={() => { setEditingId(product.id); setFormData(product); setShowModal(true); }}
               ></product-card>
             ))}
           </div>
@@ -261,59 +370,31 @@ const Home = () => {
         open={isCartOpen ? '' : null}
       ></cart-modal>
 
-      {/* Inventory Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">Administrar Inventario</h3>
-              <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+      {/* Size Selection Modal */}
+      {sizeModalProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-xs text-center">
+            <h3 className="text-lg font-bold mb-2">Selecciona una talla</h3>
+            <p className="text-sm text-gray-600 mb-4">Para: {sizeModalProduct.name}</p>
+            <div className="flex flex-wrap justify-center gap-2 mb-6">
+              {Object.entries(sizeModalProduct.stock)
+                .filter(([, count]) => count > 0)
+                .map(([size, count]) => (
+                  <button
+                    key={size}
+                    onClick={() => handleAddToCartWithSize(sizeModalProduct, size)}
+                    className="px-4 py-2 border rounded-md hover:bg-blue-600 hover:text-white focus:bg-blue-600 focus:text-white focus:outline-none transition-colors"
+                  >
+                    {size} <span className="text-xs text-gray-400">({count})</span>
+                  </button>
+                ))}
             </div>
-            
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block mb-1 font-medium">Nombre del Producto</label>
-                  <input type="text" id="product-name" value={formData.name} onChange={handleInputChange} className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-                </div>
-                <div>
-                  <label className="block mb-1 font-medium">Categoría</label>
-                  <select id="product-category" value={formData.category} onChange={handleInputChange} className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required>
-                    <option value="">Seleccionar categoría</option>
-                    <option value="gorras">Gorras</option>
-                    <option value="camisetas">Camisetas</option>
-                    <option value="sudaderas">Sudaderas</option>
-                    <option value="accesorios">Accesorios</option>
-                  </select>
-                </div>
-              </div>
-              
-              <div>
-                <label className="block mb-1 font-medium">Descripción</label>
-                <textarea id="product-description" value={formData.description} onChange={handleInputChange} rows="3" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block mb-1 font-medium">Precio ($)</label>
-                  <input type="number" id="product-price" step="0.01" value={formData.price} onChange={handleInputChange} className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-                </div>
-                <div>
-                  <label className="block mb-1 font-medium">Cantidad en Stock</label>
-                  <input type="number" id="product-stock" value={formData.stock} onChange={handleInputChange} className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-                </div>
-                <div>
-                  <label className="block mb-1 font-medium">URL de la Imagen</label>
-                  <input type="text" id="product-image" value={formData.image} onChange={handleInputChange} className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="http://static.photos/fashion/640x360/1" />
-                </div>
-              </div>
-              
-              <div className="flex justify-end space-x-3 pt-4">
-                {editingId && <button type="button" onClick={handleDelete} className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Eliminar</button>}
-                {editingId && <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">Cancelar</button>}
-                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Guardar Producto</button>
-              </div>
-            </form>
+            <button
+              onClick={() => setSizeModalProduct(null)}
+              className="w-full text-center text-sm text-gray-500 hover:text-black"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}

@@ -333,6 +333,12 @@ class CartModal extends HTMLElement {
                 }));
             });
         });
+
+        this.shadowRoot.querySelector('.checkout-btn').addEventListener('click', () => {
+            if (this._items.length > 0) {
+                this.dispatchEvent(new CustomEvent('proceed-to-checkout', { bubbles: true, composed: true }));
+            }
+        });
     }
 }
 

@@ -28,11 +28,11 @@ const AdminPage = () => {
         if (userDocSnap.exists() && userDocSnap.data().isAdmin === true) {
           setUser(currentUser);
         } else {
-          // No es admin o no tiene documento, redirigir
+          
           navigate('/');
         }
       } else {
-        // No hay usuario logueado, redirigir
+       
         navigate('/login');
       }
       setLoading(false);

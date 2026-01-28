@@ -8,7 +8,7 @@ import '../componets/cart-modal.js';
 import { db, auth } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDoc } from 'firebase/firestore';
 
 const Home = () => {
   const [products, setProducts] = useState([]);
@@ -16,6 +16,10 @@ const Home = () => {
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [sizeModalProduct, setSizeModalProduct] = useState(null);
   const [quickViewProduct, setQuickViewProduct] = useState(null);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
+  const [profileData, setProfileData] = useState({ phone: '', street: '', city: '', state: '', zipCode: '', country: '' });
   const [user, setUser] = useState(null);
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -132,6 +136,28 @@ const Home = () => {
     }
   }, [location]);
 
+  // Cargar datos del perfil para el checkout
+  useEffect(() => {
+    const loadProfileData = async () => {
+        if (isCheckoutOpen && user) {
+            const userDocRef = doc(db, 'users', user.uid);
+            const docSnap = await getDoc(userDocRef);
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setProfileData({
+                    phone: data.phone || '',
+                    street: data.street || '',
+                    city: data.city || '',
+                    state: data.state || '',
+                    zipCode: data.zipCode || '',
+                    country: data.country || '',
+                });
+            }
+        }
+    };
+    loadProfileData();
+  }, [isCheckoutOpen, user]);
+
   useEffect(() => {
     const handleSelectSize = (e) => {
       setSizeModalProduct(e.detail);
@@ -235,12 +261,22 @@ const Home = () => {
     setCart(prevCart => prevCart.filter(item => item.id !== id));
   }, [user]);
 
+  const handleProceedToCheckout = useCallback(() => {
+    if (cart.length === 0) return;
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+    setIsCartOpen(false);
+    setIsCheckoutOpen(true);
+  }, [cart.length, user, navigate]);
+
   // Pasar items al modal del carrito y manejar sus eventos
   useEffect(() => {
     const modal = cartModalRef.current;
     if (modal) {
       modal.items = cart;
-      
+
       const handleClose = () => {
         setIsCartOpen(false);
         if (location.pathname === '/carrito') {
@@ -251,16 +287,18 @@ const Home = () => {
       const handleRemove = (e) => handleRemoveItem(e.detail.id);
 
       modal.addEventListener('close-cart', handleClose);
+      modal.addEventListener('proceed-to-checkout', handleProceedToCheckout);
       modal.addEventListener('update-quantity', handleUpdateQty);
       modal.addEventListener('remove-item', handleRemove);
 
       return () => {
         modal.removeEventListener('close-cart', handleClose);
+        modal.removeEventListener('proceed-to-checkout', handleProceedToCheckout);
         modal.removeEventListener('update-quantity', handleUpdateQty);
         modal.removeEventListener('remove-item', handleRemove);
       };
     }
-  }, [cart, isCartOpen, location, navigate, user, handleUpdateQuantity, handleRemoveItem]);
+  }, [cart, isCartOpen, location, navigate, user, handleUpdateQuantity, handleRemoveItem, handleProceedToCheckout]);
   // 4. Guardar carrito en localStorage SOLO si el usuario no está logueado
   useEffect(() => {
     if (!user) {
@@ -272,6 +310,56 @@ const Home = () => {
     addToCart(product.productId, size);
     setSizeModalProduct(null); // Close modal
   };
+
+  const handlePlaceOrder = async (e) => {
+    e.preventDefault();
+    if (!user || cart.length === 0) {
+        setCheckoutError("No se puede procesar el pedido. El carrito está vacío o no has iniciado sesión.");
+        return;
+    }
+
+    setPlacingOrder(true);
+    setCheckoutError('');
+
+    try {
+        const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const orderData = {
+            items: cart,
+            total: total,
+            date: new Date(),
+            status: 'Procesando',
+            shippingInfo: profileData,
+            userId: user.uid,
+        };
+
+        // 1. Guardar el pedido en la colección de pedidos del usuario
+        const newOrderRef = doc(collection(db, 'users', user.uid, 'orders'));
+        await setDoc(newOrderRef, { ...orderData, id: newOrderRef.id });
+
+        // 2. Guardar una copia en la colección de pedidos global (para el admin)
+        const globalOrderRef = doc(db, 'orders', newOrderRef.id);
+        await setDoc(globalOrderRef, { ...orderData, id: newOrderRef.id });
+
+        // 3. Limpiar el carrito del usuario en Firestore
+        const batch = writeBatch(db);
+        const cartSnapshot = await getDocs(collection(db, 'users', user.uid, 'cart'));
+        cartSnapshot.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+
+        // 4. Limpiar el estado del carrito local y cerrar modales
+        setCart([]);
+        setIsCheckoutOpen(false);
+        alert('¡Pedido realizado con éxito! Serás redirigido a tu perfil para ver el estado.');
+        navigate('/perfil');
+    } catch (err) {
+        console.error("Error al realizar el pedido:", err);
+        setCheckoutError("Hubo un error al procesar tu pedido. Inténtalo de nuevo.");
+    } finally {
+        setPlacingOrder(false);
+    }
+};
 
   // Componente para la tarjeta de categoría con carrusel
   const CategoryCarouselCard = ({ category, allProducts }) => {
@@ -463,6 +551,72 @@ const Home = () => {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Checkout Modal */}
+      {isCheckoutOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg text-left">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">Confirmar Pedido</h3>
+              <button onClick={() => setIsCheckoutOpen(false)}><X size={24} /></button>
+            </div>
+
+            <div className="mb-6 max-h-48 overflow-y-auto pr-2">
+              {cart.map(item => (
+                <div key={item.id} className="flex justify-between items-center text-sm mb-2">
+                  <span>{item.name} {item.size && `(${item.size})`} x {item.quantity}</span>
+                  <span className="font-medium">${(item.price * item.quantity).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between items-center text-lg font-bold border-t pt-4 mb-6">
+              <span>Total</span>
+              <span>${cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}</span>
+            </div>
+
+            <form onSubmit={handlePlaceOrder}>
+              <h4 className="text-lg font-semibold mb-3">Información de Envío</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
+                  <input type="tel" value={profileData.phone} onChange={(e) => setProfileData({...profileData, phone: e.target.value})} className="w-full px-3 py-2 border rounded-md" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Calle y Número</label>
+                  <input type="text" value={profileData.street} onChange={(e) => setProfileData({...profileData, street: e.target.value})} className="w-full px-3 py-2 border rounded-md" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ciudad</label>
+                  <input type="text" value={profileData.city} onChange={(e) => setProfileData({...profileData, city: e.target.value})} className="w-full px-3 py-2 border rounded-md" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+                  <input type="text" value={profileData.state} onChange={(e) => setProfileData({...profileData, state: e.target.value})} className="w-full px-3 py-2 border rounded-md" required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Código Postal</label>
+                  <input type="text" value={profileData.zipCode} onChange={(e) => setProfileData({...profileData, zipCode: e.target.value})} className="w-full px-3 py-2 border rounded-md" required />
+                </div>
+                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">País</label>
+                  <input type="text" value={profileData.country} onChange={(e) => setProfileData({...profileData, country: e.target.value})} className="w-full px-3 py-2 border rounded-md" required />
+                </div>
+              </div>
+
+              {checkoutError && <p className="text-red-500 text-sm mt-4">{checkoutError}</p>}
+
+              <div className="mt-6 flex justify-end gap-4">
+                <button type="button" onClick={() => setIsCheckoutOpen(false)} className="px-4 py-2 text-sm border rounded-md hover:bg-gray-100">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={placingOrder} className="px-6 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300">
+                  {placingOrder ? 'Procesando...' : 'Realizar Pedido'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

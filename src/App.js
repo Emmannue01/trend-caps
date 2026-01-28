@@ -7,6 +7,7 @@ import ForgotPasswordForm from './componets/ForgotPasswordForm.js';
 import Profile from './pages/Profile.js';
 import AdminPage from './pages/AdminPage.js';
 
+
 function App() {
   return (
     <Router>

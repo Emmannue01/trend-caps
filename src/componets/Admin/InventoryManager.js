@@ -13,7 +13,7 @@ const InventoryManager = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [formData, setFormData] = useState({ name: '', price: '', stock: '', category: 'gorras', image: '' });
+  const [formData, setFormData] = useState({ name: '', price: '', salePrice: '', stock: '', category: 'gorras', image: '' });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -34,7 +34,7 @@ const InventoryManager = () => {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', price: '', stock: '', category: 'gorras', image: '' });
+    setFormData({ name: '', price: '', salePrice: '', stock: '', category: 'gorras', image: '' });
     setEditingProduct(null);
     setImageFile(null);
     setImagePreview('');
@@ -69,6 +69,7 @@ const InventoryManager = () => {
       const productData = {
         name: formData.name,
         price: parseFloat(formData.price),
+        salePrice: formData.salePrice ? parseFloat(formData.salePrice) : null,
         stock: formData.category === 'playeras'
             ? {
                 S: parseInt(formData.stock.S || 0, 10),
@@ -80,6 +81,11 @@ const InventoryManager = () => {
         category: formData.category,
         image: imageUrl,
       };
+
+      if (productData.salePrice === null || isNaN(productData.salePrice) || productData.salePrice <= 0) {
+        // Firestore no guarda campos nulos, pero para estar seguros, lo eliminamos.
+        delete productData.salePrice;
+      }
 
       if (editingProduct) {
         await updateDoc(doc(db, 'products', editingProduct.id), productData);
@@ -116,7 +122,7 @@ const InventoryManager = () => {
     const stockData = (product.category === 'playeras' && typeof product.stock !== 'object')
         ? { S: 0, M: 0, L: 0, XL: 0 } // Fallback for old data
         : product.stock;
-    setFormData({ ...product, stock: stockData });
+    setFormData({ ...product, stock: stockData, salePrice: product.salePrice || '' });
     setImagePreview(product.image || '');
     setShowModal(true);
   };
@@ -156,6 +162,7 @@ const InventoryManager = () => {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Producto</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precio</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Oferta</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
             </tr>
@@ -170,7 +177,10 @@ const InventoryManager = () => {
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.category}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${product.price}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${product.price.toFixed(2)}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-bold">
+                  {product.salePrice ? `$${product.salePrice.toFixed(2)}` : '-'}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${product.stock > 10 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                     {getTotalStock(product.stock)}
@@ -202,6 +212,10 @@ const InventoryManager = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Precio</label>
                   <input type="number" step="0.01" required className="mt-1 w-full border rounded-md p-2" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Precio de Oferta</label>
+                  <input type="number" step="0.01" className="mt-1 w-full border rounded-md p-2" value={formData.salePrice} onChange={e => setFormData({ ...formData, salePrice: e.target.value })} placeholder="Opcional" />
                 </div>
                 {formData.category !== 'playeras' && (
                   <div>

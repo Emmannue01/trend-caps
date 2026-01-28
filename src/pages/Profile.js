@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { updateProfile, updateEmail } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, orderBy, getDocs } from 'firebase/firestore';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import '../componets/navbar.js';
 import '../componets/footer.js';
 
@@ -268,9 +268,16 @@ const Profile = () => {
                       <span className="font-bold text-gray-800">${order.total || '0.00'}</span>
                     </div>
                     {order.items && (
-                      <div className="mt-2 text-xs text-gray-500">
-                        {order.items.length} artículo(s): {order.items.map(i => i.name).join(', ')}
-                      </div>
+                      <ul className="mt-3 space-y-2 text-sm">
+                        {order.items.map(item => (
+                          <li key={item.id} className="flex justify-between items-center bg-gray-50 p-2 rounded">
+                            <Link to={`/producto/${item.productId}`} className="text-blue-600 hover:underline">
+                              {item.name} {item.size && `(${item.size})`}
+                            </Link>
+                            <span className="text-gray-600">{item.quantity} x ${(item.price || 0).toFixed(2)}</span>
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
                 ))}

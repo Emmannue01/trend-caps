@@ -1,12 +1,13 @@
 // src/pages/AdminPage.js
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Package, ShoppingCart, DollarSign, LogOut, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, DollarSign, LogOut, Menu, X, Tag } from 'lucide-react';
 import { auth } from '../firebase';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import InventoryManager from '../componets/Admin/InventoryManager';
+import CouponManager from '../componets/Admin/CouponManager';
 import OrderManager from '../componets/Admin/OrderManager';
 import PointOfSale from '../componets/Admin/PointOfSale';
 import EarningsDashboard from '../componets/Admin/EarningsDashboard';
@@ -53,6 +54,7 @@ const AdminPage = () => {
     switch (activeTab) {
       case 'inventory': return <InventoryManager />;
       case 'orders': return <OrderManager />;
+      case 'coupons': return <CouponManager />;
       case 'pos': return <PointOfSale />;
       case 'dashboard':
       default: return <EarningsDashboard />;
@@ -81,6 +83,7 @@ const AdminPage = () => {
           <NavButton tab="dashboard" icon={LayoutDashboard} label="Panel Principal" />
           <NavButton tab="inventory" icon={Package} label="Inventario" />
           <NavButton tab="orders" icon={ShoppingCart} label="Pedidos" />
+          <NavButton tab="coupons" icon={Tag} label="Cupones" />
           <NavButton tab="pos" icon={DollarSign} label="Punto de Venta" />
         </nav>
         <div className="p-4 border-t bg-gray-50">
@@ -106,6 +109,7 @@ const AdminPage = () => {
           <NavButton tab="dashboard" icon={LayoutDashboard} label="Panel Principal" />
           <NavButton tab="inventory" icon={Package} label="Inventario" />
           <NavButton tab="orders" icon={ShoppingCart} label="Pedidos" />
+          <NavButton tab="coupons" icon={Tag} label="Cupones" />
           <NavButton tab="pos" icon={DollarSign} label="Punto de Venta" />
           <div className="pt-4 mt-4 border-t">
             <button onClick={handleLogout} className="w-full flex items-center space-x-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg">

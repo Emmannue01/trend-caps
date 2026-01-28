@@ -7,6 +7,7 @@ class CapstyleFooter extends HTMLElement {
                     display: block;
                     background-color: #1e293b;
                     color: #f8fafc;
+                    scroll-margin-top: 80px; /* Ajusta este valor según la altura de tu navbar */
                     padding: 3rem 1rem;
                 }
                 
@@ -106,7 +107,7 @@ class CapstyleFooter extends HTMLElement {
                 }
             </style>
             
-            <div class="footer-container">
+            <footer id="footer" class="footer-container">
                 <div class="footer-about">
                     <div class="footer-logo">
                         <i data-feather="shopping-bag"></i>
@@ -146,7 +147,7 @@ class CapstyleFooter extends HTMLElement {
                     
                     
                 </div>
-            </div>
+            </footer>
             
             <div class="footer-bottom">
                 &copy; ${new Date().getFullYear()} Trend-Caps. Todos los derechos reservados.

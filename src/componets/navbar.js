@@ -158,9 +158,9 @@ class CapstyleNavbar extends HTMLElement {
                 
                 <div class="nav-links">
                     <a href="#products">Productos</a>
-                    <a href="#">Categorías</a>
-                    <a href="#">Ofertas</a>
-                    <a href="#">Contacto</a>
+                    <a href="#categories">Categorías</a>
+                    <a href="#offers">Ofertas</a>
+                    <a href="#footer">Contacto</a>
                 </div>
                 <div class="flex items-center gap-4">
                     <a href="#" class="cart-icon" id="cart-btn">

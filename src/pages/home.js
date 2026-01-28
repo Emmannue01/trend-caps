@@ -7,11 +7,14 @@ import '../componets/footer.js';
 import '../componets/cart-modal.js';
 import { db, auth } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDoc } from 'firebase/firestore';
+import { ChevronLeft, ChevronRight, X, Tag } from 'lucide-react';
+import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDoc, query, where, increment } from 'firebase/firestore';
 
 const Home = () => {
   const [products, setProducts] = useState([]);
+  const [offerProducts, setOfferProducts] = useState([]);
+  const [filteredProducts, setFilteredProducts] = useState([]);
+  const [activeFilter, setActiveFilter] = useState('all');
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [sizeModalProduct, setSizeModalProduct] = useState(null);
@@ -19,6 +22,9 @@ const Home = () => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [couponError, setCouponError] = useState('');
   const [profileData, setProfileData] = useState({ phone: '', street: '', city: '', state: '', zipCode: '', country: '' });
   const [user, setUser] = useState(null);
   const [cart, setCart] = useState([]);
@@ -43,7 +49,12 @@ const Home = () => {
       try {
         const productsSnapshot = await getDocs(productsCollectionRef);
         const productsData = productsSnapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-        setProducts(productsData);
+        
+        const regular = productsData.filter(p => !p.salePrice || p.salePrice >= p.price);
+        const offers = productsData.filter(p => p.salePrice && p.salePrice < p.price);
+
+        setProducts(regular);
+        setOfferProducts(offers);
 
         // Derivar categorías desde los productos
         const derivedCategories = productsData.reduce((acc, product) => {
@@ -58,7 +69,6 @@ const Home = () => {
         }, []);
         
         setCategories(derivedCategories);
-
       } catch (error) {
         console.error("Error al cargar datos:", error);
       } finally {
@@ -68,6 +78,12 @@ const Home = () => {
 
     getProductsAndDeriveCategories();
   }, [productsCollectionRef]);
+
+  // Efecto para actualizar productos filtrados cuando cambian los productos o el filtro
+  useEffect(() => {
+    const allProducts = [...offerProducts, ...products];
+    setFilteredProducts(activeFilter === 'all' ? allProducts : allProducts.filter(p => p.category === activeFilter));
+  }, [products, offerProducts, activeFilter]);
 
   // 2. Cargar el carrito y fusionar si es necesario
   useEffect(() => {
@@ -139,6 +155,7 @@ const Home = () => {
   // Cargar datos del perfil para el checkout
   useEffect(() => {
     const loadProfileData = async () => {
+        setCouponCode(''); setAppliedCoupon(null); setCouponError(''); // Resetear cupón al abrir
         if (isCheckoutOpen && user) {
             const userDocRef = doc(db, 'users', user.uid);
             const docSnap = await getDoc(userDocRef);
@@ -180,21 +197,29 @@ const Home = () => {
 
   // 3. Funciones de modificación del carrito (ahora asíncronas)
   const addToCart = useCallback(async (productId, size = null) => {
-    const productToAdd = products.find(p => p.id === productId);
+    const allProducts = [...products, ...offerProducts];
+    const productToAdd = allProducts.find(p => p.id === productId);
     if (!productToAdd) return;
 
     const cartId = size ? `${productId}-${size}` : productId;
 
     const existingItem = cart.find(item => item.id === cartId);
     const newQuantity = existingItem ? existingItem.quantity + 1 : 1;
+    
+    // Determinar el precio a usar (oferta o normal)
+    const priceToUse = (productToAdd.salePrice && productToAdd.salePrice < productToAdd.price)
+        ? productToAdd.salePrice
+        : productToAdd.price;
 
     const cartItem = {
         ...productToAdd,
+        price: priceToUse, // Usar el precio correcto
         id: cartId,
         productId: productId,
         quantity: newQuantity,
         ...(size && { size: size })
     };
+    delete cartItem.salePrice; // Limpiar para evitar confusiones
 
     if (user) {
       // Guardar en Firestore
@@ -205,20 +230,22 @@ const Home = () => {
     // Actualizar estado local
     if (existingItem) {
       setCart(prevCart => prevCart.map(item =>
-        item.id === cartId ? { ...item, quantity: newQuantity } : item
+        item.id === cartId ? { ...item, quantity: newQuantity, price: priceToUse } : item
       ));
     } else {
       const newItemForState = {
           ...productToAdd,
+          price: priceToUse,
           id: cartId,
           productId: productId,
           quantity: 1,
           ...(size && { size: size })
       };
+      delete newItemForState.salePrice;
       setCart(prevCart => [...prevCart, newItemForState]);
     }
     setIsCartOpen(true);
-  }, [products, cart, user]);
+  }, [products, offerProducts, cart, user]);
 
   // Manejar eventos del carrito (Agregar y Abrir)
   useEffect(() => {
@@ -311,6 +338,45 @@ const Home = () => {
     setSizeModalProduct(null); // Close modal
   };
 
+  const handleApplyCoupon = async () => {
+    if (!couponCode) return;
+    setCouponError('');
+    setAppliedCoupon(null);
+
+    const couponQuery = query(collection(db, "coupons"), where("code", "==", couponCode.toUpperCase()));
+    const querySnapshot = await getDocs(couponQuery);
+
+    if (querySnapshot.empty) {
+      setCouponError("El cupón no es válido.");
+      return;
+    }
+
+    const couponDoc = querySnapshot.docs[0];
+    const couponData = { id: couponDoc.id, ...couponDoc.data() };
+
+    // Aquí podrías añadir más validaciones (fecha de expiración, si está activo, etc.)
+    
+    setAppliedCoupon(couponData);
+  };
+
+  const calculateTotal = () => {
+    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    if (!appliedCoupon) {
+      return { subtotal, discount: 0, total: subtotal };
+    }
+
+    let discount = 0;
+    if (appliedCoupon.discountType === 'percentage') {
+      discount = (subtotal * appliedCoupon.discountValue) / 100;
+    } else { // 'fixed'
+      discount = appliedCoupon.discountValue;
+    }
+    
+    const total = Math.max(0, subtotal - discount);
+    return { subtotal, discount, total };
+  };
+  const { subtotal, discount, total } = calculateTotal();
+
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
     if (!user || cart.length === 0) {
@@ -322,33 +388,49 @@ const Home = () => {
     setCheckoutError('');
 
     try {
-        const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const batch = writeBatch(db);
+        const { subtotal, discount, total } = calculateTotal();
+
+        // 1. Definir los datos del pedido
         const orderData = {
             items: cart,
+            subtotal: subtotal,
+            discount: discount,
+            appliedCoupon: appliedCoupon ? { code: appliedCoupon.code, value: appliedCoupon.discountValue, type: appliedCoupon.discountType } : null,
             total: total,
             date: new Date(),
             status: 'Procesando',
-            shippingInfo: profileData,
+            shippingInfo: { ...profileData, displayName: user.displayName || user.email, email: user.email },
             userId: user.uid,
+            userEmail: user.email,
         };
 
-        // 1. Guardar el pedido en la colección de pedidos del usuario
+        // 2. Guardar el pedido en la colección de pedidos del usuario
         const newOrderRef = doc(collection(db, 'users', user.uid, 'orders'));
-        await setDoc(newOrderRef, { ...orderData, id: newOrderRef.id });
+        batch.set(newOrderRef, { ...orderData, id: newOrderRef.id });
 
-        // 2. Guardar una copia en la colección de pedidos global (para el admin)
+        // 3. Guardar una copia en la colección de pedidos global (para el admin)
         const globalOrderRef = doc(db, 'orders', newOrderRef.id);
-        await setDoc(globalOrderRef, { ...orderData, id: newOrderRef.id });
+        batch.set(globalOrderRef, { ...orderData, id: newOrderRef.id });
 
-        // 3. Limpiar el carrito del usuario en Firestore
-        const batch = writeBatch(db);
+        // 4. Actualizar el stock de los productos
+        for (const item of cart) {
+            const productRef = doc(db, 'products', item.productId);
+            if (item.category === 'playeras' && item.size) { // Asume que 'playeras' es la categoría para productos con tallas
+                batch.update(productRef, { [`stock.${item.size}`]: increment(-item.quantity) });
+            } else {
+                batch.update(productRef, { stock: increment(-item.quantity) });
+            }
+        }
+
+        // 5. Limpiar el carrito del usuario en Firestore
         const cartSnapshot = await getDocs(collection(db, 'users', user.uid, 'cart'));
-        cartSnapshot.forEach(doc => {
-            batch.delete(doc.ref);
-        });
+        cartSnapshot.forEach(cartDoc => batch.delete(cartDoc.ref));
+        
+        // Ejecutar todas las operaciones atómicamente
         await batch.commit();
 
-        // 4. Limpiar el estado del carrito local y cerrar modales
+        // 6. Limpiar el estado del carrito local y cerrar modales
         setCart([]);
         setIsCheckoutOpen(false);
         alert('¡Pedido realizado con éxito! Serás redirigido a tu perfil para ver el estado.');
@@ -361,12 +443,19 @@ const Home = () => {
     }
 };
 
+const handleFilterClick = (filter) => {
+    setActiveFilter(filter);
+    const allProducts = [...offerProducts, ...products];
+    const filtered = filter === 'all' ? allProducts : allProducts.filter(p => p.category === filter);
+    setFilteredProducts(filtered);
+  };
+
   // Componente para la tarjeta de categoría con carrusel
-  const CategoryCarouselCard = ({ category, allProducts }) => {
+  const CategoryCarouselCard = ({ category, allProducts, onCategoryClick }) => {
     const [currentIndex, setCurrentIndex] = useState(0);
 
     const productImages = useMemo(() => 
-        allProducts
+        [...allProducts, ...offerProducts]
             .filter(p => p.category === category.slug && p.image)
             .map(p => p.image),
         [allProducts, category.slug]
@@ -397,7 +486,10 @@ const Home = () => {
     };
 
     return (
-        <div className="category-card bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition duration-300 cursor-pointer relative group">
+        <div 
+            onClick={() => onCategoryClick(category.slug)}
+            className="category-card bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition duration-300 cursor-pointer relative group"
+        >
             <img src={displayImages[currentIndex]} alt={category.name} className="w-full h-40 object-cover transition-transform duration-300 group-hover:scale-105" />
             {displayImages.length > 1 && (
                 <>
@@ -424,7 +516,7 @@ const Home = () => {
         </section>
 
         {/* Featured Categories */}
-        <section className="mb-12">
+        <section id="categories" className="mb-12">
           <h2 className="text-2xl font-bold mb-6">Categorías Destacadas</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {loadingCategories ? (
@@ -433,20 +525,46 @@ const Home = () => {
               ))
             ) : categories.length > 0 ? (
               categories.map((category) => (
-                <CategoryCarouselCard key={category.id} category={category} allProducts={products} />
+                <CategoryCarouselCard 
+                    key={category.id} 
+                    category={category} 
+                    allProducts={products} 
+                    onCategoryClick={handleFilterClick}
+                />
               ))
             ) : <p className="col-span-full text-center text-gray-500">No hay categorías para mostrar.</p>}
           </div>
         </section>
+
+        {/* Offers Section */}
+        {offerProducts.length > 0 && (
+            <section id="offers" className="mb-12">
+                <h2 className="text-2xl font-bold mb-6 text-red-600">🔥 Ofertas Especiales</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    {offerProducts.map(product => (
+                        <product-card
+                            key={product.id}
+                            product-id={product.id}
+                            name={product.name}
+                            category={product.category}
+                            description={product.description}
+                            price={product.price}
+                            sale-price={product.salePrice || ''}
+                            stock={JSON.stringify(product.stock)}
+                            image={product.image}
+                        ></product-card>
+                    ))}
+                </div>
+            </section>
+        )}
 
         {/* Products Section */}
         <section id="products" className="mb-12">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold">Nuestros Productos</h2>
           </div>
-          
           <div id="products-grid" className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {products.map(product => (
+            {filteredProducts.map(product => (
               <product-card
                 key={product.id}
                 product-id={product.id}
@@ -454,6 +572,7 @@ const Home = () => {
                 category={product.category}
                 description={product.description}
                 price={product.price}
+                sale-price={product.salePrice || ''}
                 stock={JSON.stringify(product.stock)}
                 image={product.image}
               ></product-card>
@@ -513,7 +632,16 @@ const Home = () => {
             </div>
             <div className="md:w-1/2 p-6 flex flex-col">
               <h2 className="text-3xl font-bold mb-2 text-gray-800">{quickViewProduct.name}</h2>
-              <p className="text-2xl font-semibold text-blue-600 mb-4">${quickViewProduct.price}</p>
+              <div className="flex items-baseline gap-3 mb-4">
+                {quickViewProduct.salePrice && parseFloat(quickViewProduct.salePrice) < parseFloat(quickViewProduct.price) ? (
+                  <>
+                    <span className="text-3xl font-bold text-red-600">${parseFloat(quickViewProduct.salePrice).toFixed(2)}</span>
+                    <span className="text-xl text-gray-400 line-through">${parseFloat(quickViewProduct.price).toFixed(2)}</span>
+                  </>
+                ) : (
+                  <span className="text-3xl font-bold text-blue-600">${parseFloat(quickViewProduct.price).toFixed(2)}</span>
+                )}
+              </div>
               <p className="text-gray-600 mb-6 flex-grow">{quickViewProduct.description || 'Sin descripción disponible.'}</p>
               
               <div className="mt-auto">
@@ -572,9 +700,26 @@ const Home = () => {
                 </div>
               ))}
             </div>
-            <div className="flex justify-between items-center text-lg font-bold border-t pt-4 mb-6">
+            <div className="flex justify-between items-center text-md border-t pt-4">
+              <span>Subtotal</span>
+              <span>${subtotal.toFixed(2)}</span>
+            </div>
+            {discount > 0 && (
+              <div className="flex justify-between items-center text-md text-green-600">
+                <span>Descuento ({appliedCoupon.code})</span>
+                <span>-${discount.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center text-xl font-bold pt-2 mt-2 border-t mb-6">
               <span>Total</span>
-              <span>${cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}</span>
+              <span>${total.toFixed(2)}</span>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Cupón de Descuento</label>
+              <div className="flex gap-2"><input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} className="w-full px-3 py-2 border rounded-md uppercase" placeholder="Escribe tu cupón" /><button type="button" onClick={handleApplyCoupon} className="px-4 py-2 text-sm border rounded-md bg-gray-100 hover:bg-gray-200 whitespace-nowrap">Aplicar</button></div>
+              {couponError && <p className="text-red-500 text-xs mt-1">{couponError}</p>}
+              {appliedCoupon && <p className="text-green-600 text-xs mt-1">¡Cupón "{appliedCoupon.code}" aplicado!</p>}
             </div>
 
             <form onSubmit={handlePlaceOrder}>

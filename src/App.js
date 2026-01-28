@@ -6,6 +6,7 @@ import RegisterForm from './componets/RegisterForm.js';
 import ForgotPasswordForm from './componets/ForgotPasswordForm.js';
 import Profile from './pages/Profile.js';
 import AdminPage from './pages/AdminPage.js';
+import ProductDetail from './pages/ProductDetail.js';
 
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
         <Route path="/perfil" element={<Profile />} />
         <Route path="/recuperar-contrasena" element={<ForgotPasswordForm />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/producto/:productId" element={<ProductDetail />} />
       </Routes>
     </Router>
   );

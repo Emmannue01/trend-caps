@@ -5,6 +5,7 @@ class ProductCard extends HTMLElement {
         const category = this.getAttribute('category');
         const description = this.getAttribute('description');
         const price = this.getAttribute('price');
+        const salePrice = this.getAttribute('sale-price');
         const image = this.getAttribute('image');
         
         const stockString = this.getAttribute('stock');
@@ -87,6 +88,24 @@ class ProductCard extends HTMLElement {
                     font-weight: 700;
                     color: #1f2937;
                 }
+
+                .price-container {
+                    display: flex;
+                    align-items: baseline;
+                    gap: 0.5rem;
+                }
+
+                .product-sale-price {
+                    font-size: 1.25rem;
+                    font-weight: 700;
+                    color: #dc2626; /* red-600 */
+                }
+
+                .product-original-price {
+                    font-size: 0.875rem;
+                    color: #6b7280; /* gray-500 */
+                    text-decoration: line-through;
+                }
                 
                 .product-stock {
                     font-size: 0.75rem;
@@ -122,7 +141,13 @@ class ProductCard extends HTMLElement {
                     <p class="product-description">${description}</p>
                     <div class="product-footer">
                         <div>
-                            <span class="product-price">$${price}</span>
+                            ${salePrice && parseFloat(salePrice) < parseFloat(price)
+                                ? `<div class="price-container">
+                                       <span class="product-sale-price">$${parseFloat(salePrice).toFixed(2)}</span>
+                                       <span class="product-original-price">$${parseFloat(price).toFixed(2)}</span>
+                                   </div>`
+                                : `<span class="product-price">$${parseFloat(price).toFixed(2)}</span>`
+                            }
                             <div class="product-stock">${totalStock > 10 ? 'En stock' : totalStock > 0 ? 'Últimas unidades' : 'Agotado'}</div>
                         </div>
                         <button class="add-to-cart" ${totalStock <= 0 ? 'disabled' : ''}>
@@ -148,7 +173,7 @@ class ProductCard extends HTMLElement {
                 const event = new CustomEvent('quick-view', {
                     bubbles: true,
                     composed: true,
-                    detail: { productId, name, stock, image, price, category, description }
+                    detail: { productId, name, stock, image, price, salePrice, category, description }
                 });
                 this.dispatchEvent(event);
             });
@@ -162,7 +187,7 @@ class ProductCard extends HTMLElement {
                     const event = new CustomEvent('select-size', {
                         bubbles: true,
                         composed: true,
-                        detail: { productId, name, stock, image, price, category, description }
+                        detail: { productId, name, stock, image, price, salePrice, category, description }
                     });
                     this.dispatchEvent(event);
                 } else {

@@ -7,7 +7,7 @@ import '../componets/footer.js';
 import '../componets/cart-modal.js';
 import { db, auth } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ChevronLeft, ChevronRight, X, Tag } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDoc, query, where, increment } from 'firebase/firestore';
 
 const Home = () => {

@@ -1,7 +1,7 @@
 // src/components/Admin/PointOfSale.js
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
-import { collection, onSnapshot, doc, increment, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, doc, increment, writeBatch, collectionGroup } from 'firebase/firestore';
 import { ShoppingCart, Plus, Minus, Trash } from 'lucide-react';
 
 const PointOfSale = () => {
@@ -11,7 +11,7 @@ const PointOfSale = () => {
   const [sizeModalProduct, setSizeModalProduct] = useState(null);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'products'), (snapshot) => {
+    const unsubscribe = onSnapshot(collectionGroup(db, 'products'), (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsubscribe();
@@ -85,8 +85,8 @@ const PointOfSale = () => {
       });
 
       for (const item of cart) {
-        const productRef = doc(db, 'products', item.productId);
-        if (item.category === 'playeras' && item.size) {
+        const productRef = doc(db, 'categories', item.category, 'products', item.productId);
+        if (typeof item.stock === 'object' && item.size) {
           batch.update(productRef, {
             [`stock.${item.size}`]: increment(-item.quantity)
           });

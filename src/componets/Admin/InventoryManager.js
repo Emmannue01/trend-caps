@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, setDoc, updateDoc, deleteDoc, doc, onSnapshot, collectionGroup } from 'firebase/firestore';
 import { Plus, Edit, Trash2, Search, X, UploadCloud } from 'lucide-react';
 
 
@@ -10,16 +10,23 @@ const CLOUDINARY_API_URL = `https://api.cloudinary.com/v1_1/dtf8s8epz/image/uplo
 
 const InventoryManager = () => {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [formData, setFormData] = useState({ name: '', price: '', salePrice: '', stock: '', category: 'gorras', image: '' });
+  const [formData, setFormData] = useState({ name: '', price: '', salePrice: '', stock: '', category: '', image: '' });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'products'), (snapshot) => {
+    const fetchCategories = async () => {
+      const categoriesSnapshot = await getDocs(collection(db, 'categories'));
+      setCategories(categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    };
+    fetchCategories();
+
+    const unsubscribe = onSnapshot(collectionGroup(db, 'products'), (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsubscribe();
@@ -34,7 +41,7 @@ const InventoryManager = () => {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', price: '', salePrice: '', stock: '', category: 'gorras', image: '' });
+    setFormData({ name: '', price: '', salePrice: '', stock: '', category: '', image: '' });
     setEditingProduct(null);
     setImageFile(null);
     setImagePreview('');
@@ -88,9 +95,19 @@ const InventoryManager = () => {
       }
 
       if (editingProduct) {
-        await updateDoc(doc(db, 'products', editingProduct.id), productData);
+        const productRef = doc(db, 'categories', editingProduct.category, 'products', editingProduct.id);
+        await updateDoc(productRef, { ...productData, image: imageUrl });
       } else {
-        await addDoc(collection(db, 'products'), productData);
+        const categorySlug = productData.category;
+        if (!categorySlug) {
+          alert("Por favor, selecciona una categoría.");
+          setIsUploading(false);
+          return;
+        }
+        const newProductRef = doc(collection(db, 'categories', categorySlug, 'products'));
+        await setDoc(newProductRef, {
+          ...productData, image: imageUrl, id: newProductRef.id
+        });
       }
       
       setShowModal(false);
@@ -102,9 +119,10 @@ const InventoryManager = () => {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (product) => {
     if (window.confirm('¿Estás seguro de eliminar este producto?')) {
-      await deleteDoc(doc(db, 'products', id));
+      const productRef = doc(db, 'categories', product.category, 'products', product.id);
+      await deleteDoc(productRef);
     }
   };
 
@@ -188,7 +206,7 @@ const InventoryManager = () => {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <button onClick={() => openEditModal(product)} className="text-blue-600 hover:text-blue-900 mr-4"><Edit size={18} /></button>
-                  <button onClick={() => handleDelete(product.id)} className="text-red-600 hover:text-red-900"><Trash2 size={18} /></button>
+                  <button onClick={() => handleDelete(product)} className="text-red-600 hover:text-red-900"><Trash2 size={18} /></button>
                 </td>
               </tr>
             ))}
@@ -237,8 +255,12 @@ const InventoryManager = () => {
                     setFormData({ ...formData, category: newCategory, stock: newStock });
                   }}
                 >
-                  <option value="gorras">Gorras</option>
-                  <option value="playeras">Playeras</option>
+                  <option value="">Selecciona una categoría</option>
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.slug}>
+                      {cat.name}
+                    </option>
+                  ))}
                 </select>
               </div>
               {formData.category === 'playeras' && (

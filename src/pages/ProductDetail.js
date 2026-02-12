@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
-import { ArrowLeft } from 'lucide-react';
+import { getDocs, query, where, collectionGroup } from 'firebase/firestore';
+import { ArrowLeft, Loader } from 'lucide-react';
 import '../componets/navbar.js';
 import '../componets/footer.js';
 
@@ -23,11 +23,16 @@ const ProductDetail = () => {
       }
 
       try {
-        const productRef = doc(db, 'products', productId);
-        const productSnap = await getDoc(productRef);
+        // Usamos una collectionGroup query para buscar el producto en todas las subcolecciones 'products'.
+        // NOTA: Esto requiere que cada documento de producto tenga un campo 'id' que sea una copia de su ID de documento.
+        const productsQuery = query(collectionGroup(db, 'products'), where('id', '==', productId));
+        const productSnapshots = await getDocs(productsQuery);
 
-        if (productSnap.exists()) {
-          setProduct({ id: productSnap.id, ...productSnap.data() });
+        if (!productSnapshots.empty) {
+          const productSnap = productSnapshots.docs[0];
+          // Aseguramos que el producto tenga el campo 'id' para consistencia
+          const productData = { id: productSnap.id, ...productSnap.data() };
+          setProduct(productData);
         } else {
           setError('Producto no encontrado.');
         }
@@ -53,7 +58,7 @@ const ProductDetail = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+        <Loader className="animate-spin text-blue-600" size={48} />
       </div>
     );
   }

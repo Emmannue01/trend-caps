@@ -8,7 +8,7 @@ import '../componets/cart-modal.js';
 import { db, auth } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDoc, query, where, increment } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc, writeBatch, getDoc, query, where, increment, collectionGroup } from 'firebase/firestore';
 
 const Home = () => {
   const [products, setProducts] = useState([]);
@@ -32,7 +32,6 @@ const Home = () => {
   const cartModalRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const productsCollectionRef = useMemo(() => collection(db, 'products'), []);
 
   // 1. Escuchar el estado de autenticación del usuario
   useEffect(() => {
@@ -42,12 +41,18 @@ const Home = () => {
     return () => unsubscribe();
   }, []);
 
-  // Cargar productos y derivar categorías desde Firestore
+  // Cargar categorías y productos desde Firestore
   useEffect(() => {
-    const getProductsAndDeriveCategories = async () => {
+    const loadData = async () => {
       setLoadingCategories(true);
       try {
-        const productsSnapshot = await getDocs(productsCollectionRef);
+        // 1. Cargar categorías
+        const categoriesSnapshot = await getDocs(collection(db, 'categories'));
+        const categoriesData = categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setCategories(categoriesData);
+
+        // 2. Cargar todos los productos con una Collection Group Query
+        const productsSnapshot = await getDocs(collectionGroup(db, 'products'));
         const productsData = productsSnapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
         
         const regular = productsData.filter(p => !p.salePrice || p.salePrice >= p.price);
@@ -55,29 +60,14 @@ const Home = () => {
 
         setProducts(regular);
         setOfferProducts(offers);
-
-        // Derivar categorías desde los productos
-        const derivedCategories = productsData.reduce((acc, product) => {
-          if (product.category && !acc.some(cat => cat.slug === product.category)) {
-            acc.push({
-              id: product.category, // Usar el slug de la categoría como ID
-              name: product.category.charAt(0).toUpperCase() + product.category.slice(1), // Capitalizar
-              slug: product.category,
-            });
-          }
-          return acc;
-        }, []);
-        
-        setCategories(derivedCategories);
       } catch (error) {
         console.error("Error al cargar datos:", error);
       } finally {
         setLoadingCategories(false);
       }
     };
-
-    getProductsAndDeriveCategories();
-  }, [productsCollectionRef]);
+    loadData();
+  }, []);
 
   // Efecto para actualizar productos filtrados cuando cambian los productos o el filtro
   useEffect(() => {
@@ -415,8 +405,8 @@ const Home = () => {
 
         // 4. Actualizar el stock de los productos
         for (const item of cart) {
-            const productRef = doc(db, 'products', item.productId);
-            if (item.category === 'playeras' && item.size) { // Asume que 'playeras' es la categoría para productos con tallas
+            const productRef = doc(db, 'categories', item.category, 'products', item.productId);
+            if (typeof item.stock === 'object' && item.size) {
                 batch.update(productRef, { [`stock.${item.size}`]: increment(-item.quantity) });
             } else {
                 batch.update(productRef, { stock: increment(-item.quantity) });

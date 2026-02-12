@@ -1,12 +1,13 @@
 // src/pages/AdminPage.js
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Package, ShoppingCart, DollarSign, LogOut, Menu, X, Tag } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingCart, DollarSign, LogOut, Menu, X, Tag, LayoutGrid } from 'lucide-react';
 import { auth } from '../firebase';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import InventoryManager from '../componets/Admin/InventoryManager';
+import CategoryManager from '../componets/Admin/CategoryManager';
 import CouponManager from '../componets/Admin/CouponManager';
 import OrderManager from '../componets/Admin/OrderManager';
 import PointOfSale from '../componets/Admin/PointOfSale';
@@ -34,7 +35,7 @@ const AdminPage = () => {
         }
       } else {
        
-        navigate('/login');
+        navigate('/');
       }
       setLoading(false);
     });
@@ -43,7 +44,7 @@ const AdminPage = () => {
 
   const handleLogout = async () => {
     await signOut(auth);
-    navigate('/login');
+    navigate('/');
   };
 
   if (loading) return <div className="flex justify-center items-center h-screen bg-gray-50"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div></div>;
@@ -53,6 +54,7 @@ const AdminPage = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'inventory': return <InventoryManager />;
+      case 'categories': return <CategoryManager />;
       case 'orders': return <OrderManager />;
       case 'coupons': return <CouponManager />;
       case 'pos': return <PointOfSale />;
@@ -82,6 +84,7 @@ const AdminPage = () => {
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           <NavButton tab="dashboard" icon={LayoutDashboard} label="Panel Principal" />
           <NavButton tab="inventory" icon={Package} label="Inventario" />
+          <NavButton tab="categories" icon={LayoutGrid} label="Categorías" />
           <NavButton tab="orders" icon={ShoppingCart} label="Pedidos" />
           <NavButton tab="coupons" icon={Tag} label="Cupones" />
           <NavButton tab="pos" icon={DollarSign} label="Punto de Venta" />
@@ -108,6 +111,7 @@ const AdminPage = () => {
         <nav className="p-4 space-y-2">
           <NavButton tab="dashboard" icon={LayoutDashboard} label="Panel Principal" />
           <NavButton tab="inventory" icon={Package} label="Inventario" />
+          <NavButton tab="categories" icon={LayoutGrid} label="Categorías" />
           <NavButton tab="orders" icon={ShoppingCart} label="Pedidos" />
           <NavButton tab="coupons" icon={Tag} label="Cupones" />
           <NavButton tab="pos" icon={DollarSign} label="Punto de Venta" />
